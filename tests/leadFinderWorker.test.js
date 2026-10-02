@@ -146,8 +146,8 @@ describe('Lead Finder worker', () => {
 
     const unknown = await queueJob();
     await LeadFinderJob.updateOne({ _id: unknown.id }, { $set: { provider: 'does-not-exist' } });
-    await createLeadFinderWorker({ logger: silent }).runOnce();
-    assert.equal((await LeadFinderJob.findById(unknown.id)).status, 'failed');
+    assert.equal(await createLeadFinderWorker({ logger: silent }).runOnce(), null, 'a provider it cannot run is never claimed');
+    assert.equal((await LeadFinderJob.findById(unknown.id)).status, 'queued');
   });
 
   it('does not let two workers claim the same job', async () => {

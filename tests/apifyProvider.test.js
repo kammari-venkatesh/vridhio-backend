@@ -10,7 +10,7 @@ import {
   ProviderError,
   SAFE_PROVIDER_MESSAGES,
 } from '../src/services/leadFinder/provider.interface.js';
-import { getProviderStatus } from '../src/services/leadFinder/providers.js';
+import { getProviderStatus, providerAvailability, runnableProviders } from '../src/services/leadFinder/providers.js';
 import {
   apiError,
   collectingLogger,
@@ -51,22 +51,37 @@ describe('Apify configuration', () => {
     ]);
   });
 
-  it('is unconfigured in the test environment and never calls Apify', () => {
-    assert.deepEqual(getProviderStatus('apify'), {
-      provider: 'apify',
-      mode: 'unconfigured',
-      configured: false,
-      actorConfigured: false,
-      dailyBudgetConfigured: true,
-      monthlyBudgetConfigured: false,
+  it('is unavailable in the test environment and never calls Apify', () => {
+    assert.deepEqual(providerAvailability('apify'), { available: false, reason: 'REAL_APIFY_DISABLED' });
+    assert.deepEqual(providerAvailability('fake'), { available: true, reason: null });
+    assert.deepEqual(runnableProviders(), ['fake']);
+    assert.deepEqual(getProviderStatus().providers.apify, {
+      available: false,
+      unavailableReason: 'REAL_APIFY_DISABLED',
+      maxRunCostUsd: null,
     });
-    assert.deepEqual(getProviderStatus('fake'), {
-      provider: 'fake',
-      mode: 'test',
-      configured: true,
-      actorConfigured: false,
-      dailyBudgetConfigured: true,
-      monthlyBudgetConfigured: false,
+  });
+
+  it('needs APIFY_ENABLED and complete configuration before real searches are available', () => {
+    const configured = testApifyProvider({ mock: mockApify() });
+    const unconfigured = testApifyProvider({ mock: mockApify(), config: { token: '' } });
+    assert.deepEqual(providerAvailability('apify', { apifyEnabled: true, resolveProvider: () => configured }), {
+      available: true,
+      reason: null,
+    });
+    assert.deepEqual(providerAvailability('apify', { apifyEnabled: false, resolveProvider: () => configured }), {
+      available: false,
+      reason: 'REAL_APIFY_DISABLED',
+    });
+    assert.deepEqual(providerAvailability('apify', { apifyEnabled: true, resolveProvider: () => unconfigured }), {
+      available: false,
+      reason: 'REAL_APIFY_NOT_CONFIGURED',
+    });
+    assert.deepEqual(runnableProviders({ apifyEnabled: true, resolveProvider: () => configured }), ['fake', 'apify']);
+    assert.deepEqual(getProviderStatus({ apifyEnabled: true, resolveProvider: () => configured }).providers.apify, {
+      available: true,
+      unavailableReason: null,
+      maxRunCostUsd: 0.5,
     });
   });
 });

@@ -2,7 +2,7 @@ import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import app from '../src/app.js';
-import { budgetUsd, leadFinderConfig, selectProviderName } from '../src/config/leadFinder.js';
+import { budgetUsd, leadFinderConfig } from '../src/config/leadFinder.js';
 import { readApifyConfig } from '../src/config/apify.js';
 import { LeadFinderJob } from '../src/models/leadFinderJob.model.js';
 import { Prospect } from '../src/models/prospect.model.js';
@@ -34,10 +34,10 @@ let admin;
 const savedBudget = { ...leadFinderConfig.budget };
 
 const workerWith = (provider, options = {}) =>
-  createLeadFinderWorker({ resolveProvider: () => provider, logger: silent, ...options });
+  createLeadFinderWorker({ resolveProvider: () => provider, providers: ['fake', 'apify'], logger: silent, ...options });
 
 const createLiveJob = (provider, params = PARAMS, geocode = fixedCenter) =>
-  createJob(params, admin._id, { resolveProvider: () => provider, geocode });
+  createJob(params, admin._id, { provider: 'apify', apifyEnabled: true, resolveProvider: () => provider, geocode });
 
 const settled = (totalMicroUsd) => ({ totalMicroUsd, retrievedAt: new Date(), settledAt: new Date() });
 
@@ -475,19 +475,16 @@ describe('discovery budgets', () => {
 });
 
 describe('provider mode safety', () => {
-  it('uses test data unless live discovery is explicitly enabled', () => {
-    assert.equal(selectProviderName({}), 'fake');
-    assert.equal(selectProviderName({ APIFY_ENABLED: 'false' }), 'fake');
-    assert.equal(selectProviderName({ APIFY_ENABLED: 'false', APIFY_TOKEN: 'token', APIFY_API_TOKEN: 'token' }), 'fake');
-    assert.equal(selectProviderName({ APIFY_TOKEN: 'token', APIFY_ACTOR_ID: 'a~b' }), 'fake', 'a token alone is not live');
-    assert.equal(selectProviderName({ APIFY_ENABLED: 'TRUE' }), 'fake', 'only the exact value "true" enables it');
-    assert.equal(selectProviderName({ APIFY_ENABLED: 'true' }), 'apify');
-    assert.equal(selectProviderName({ APIFY_ENABLED: 'true', LEAD_FINDER_PROVIDER: 'fake' }), 'fake');
-    assert.equal(readApifyConfig({ APIFY_TOKEN: 'token' }).enabled, false);
+  it('only enables Apify with the exact value APIFY_ENABLED=true', () => {
+    assert.equal(readApifyConfig({}).enabled, false);
+    assert.equal(readApifyConfig({ APIFY_ENABLED: 'false' }).enabled, false);
+    assert.equal(readApifyConfig({ APIFY_TOKEN: 'token', APIFY_ACTOR_ID: 'a~b' }).enabled, false, 'a token alone is not live');
+    assert.equal(readApifyConfig({ APIFY_ENABLED: 'TRUE' }).enabled, false, 'only the exact value "true" enables it');
+    assert.equal(readApifyConfig({ APIFY_ENABLED: 'true' }).enabled, true);
   });
 
   it('runs the test environment on test data with safe budget defaults', () => {
-    assert.equal(leadFinderConfig.provider, 'fake');
+    assert.equal(leadFinderConfig.defaultProvider, 'fake');
     assert.equal(leadFinderConfig.geocoding.enabled, false);
     assert.equal(savedBudget.dailyUsd, 5);
     assert.equal(savedBudget.monthlyUsd, null);

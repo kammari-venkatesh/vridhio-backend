@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET_KEY = randomBytes(48).toString('hex');
 process.env.CORS_ORIGINS = 'http://localhost:3000';
-process.env.LEAD_FINDER_PROVIDER = 'fake';
+delete process.env.LEAD_FINDER_PROVIDER;
 process.env.FAKE_PROVIDER_LATENCY_MS = '0';
 // Tests never reach the real Apify API: live discovery is off and no credentials are present.
 process.env.APIFY_ENABLED = 'false';

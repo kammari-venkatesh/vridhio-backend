@@ -4,7 +4,6 @@
  * Set LEAD_FINDER_WORKER_ENABLED=false on the API to run workers only here.
  */
 import { connectDB, disconnectDB } from '../config/db.js';
-import { leadFinderConfig } from '../config/leadFinder.js';
 import { createLeadFinderWorker } from '../services/leadFinder/worker.js';
 
 const main = async () => {
@@ -18,7 +17,7 @@ const main = async () => {
 
   const worker = createLeadFinderWorker();
   worker.start();
-  console.log(`Lead Finder worker ${worker.workerId} started (${leadFinderConfig.provider} provider)`);
+  console.log(`Lead Finder worker ${worker.workerId} started (providers: ${worker.providers.join(', ')})`);
 
   const shutdown = async (signal) => {
     console.log(`${signal} received, finishing current job...`);

@@ -15,10 +15,10 @@ const parsePagination = (query, config) => {
 };
 
 export const createJob = async (req, res) => {
-  const { params, errors, isValid } = validateJobParams(req.body);
+  const { params, provider, errors, isValid } = validateJobParams(req.body);
   if (!isValid) throw new ApiError(400, 'Validation failed', errors);
 
-  const job = await jobService.createJob(params, req.admin._id);
+  const job = await jobService.createJob(params, req.admin._id, { provider });
   res.status(202).json({ success: true, data: { jobId: job.id, status: job.status, job } });
 };
 

@@ -96,19 +96,26 @@ describe('POST /api/admin/lead-finder/jobs', () => {
     assert.equal(stored.createdBy.toString(), (await AdminUser.findOne()).id);
 
     const { job } = res.body.data;
-    for (const internal of ['provider', 'lockedBy', 'heartbeatAt', 'createdBy']) {
+    assert.equal(job.provider, 'test');
+    assert.equal(job.providerMode, 'test');
+    for (const internal of ['lockedBy', 'heartbeatAt', 'createdBy', 'providerRun', 'costCapMicroUsd']) {
       assert.equal(job[internal], undefined, `${internal} must not be exposed`);
     }
   });
 
-  it('applies the default maxBusinesses and ignores unknown fields', async () => {
+  it('applies the default maxBusinesses and rejects unknown fields', async () => {
     const { agent } = await loginAgent(app);
-    const res = await agent.post(JOBS).send({ ...VALID_JOB, maxBusinesses: undefined, status: 'completed', provider: 'other' });
+    const res = await agent.post(JOBS).send({ ...VALID_JOB, maxBusinesses: undefined });
     assert.equal(res.status, 202);
     const stored = await LeadFinderJob.findById(res.body.data.jobId);
     assert.equal(stored.params.maxBusinesses, 25);
     assert.equal(stored.status, 'queued');
     assert.equal(stored.provider, 'fake');
+
+    const extra = await agent.post(JOBS).send({ ...VALID_JOB, status: 'completed' });
+    assert.equal(extra.status, 400);
+    assert.equal(extra.body.details.status, 'This field is not allowed.');
+    assert.equal(await LeadFinderJob.countDocuments(), 1);
   });
 
   it('limits the number of simultaneously active jobs', async () => {

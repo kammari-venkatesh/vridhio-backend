@@ -7,8 +7,29 @@ const SAFE_TEXT = /^[\p{L}\p{N}\s.,'&()/-]+$/u;
 const isSafeText = (value, min, max) =>
   typeof value === 'string' && value.trim().length >= min && value.trim().length <= max && SAFE_TEXT.test(value.trim());
 
+const JOB_FIELDS = new Set(['location', 'radius', 'categories', 'maxBusinesses', 'provider', 'confirmRealSearch']);
+export const SEARCH_PROVIDERS = ['test', 'apify'];
+
+/**
+ * `provider` defaults to "test". A real ("apify") search must also carry confirmRealSearch: true.
+ * Anything else in the body (including credentials) is rejected; provider settings are server-side only.
+ */
 export const validateJobParams = (body = {}) => {
   const errors = {};
+
+  for (const key of Object.keys(body ?? {})) {
+    if (!JOB_FIELDS.has(key)) errors[key] = 'This field is not allowed.';
+  }
+
+  const provider = body.provider === undefined ? 'test' : body.provider;
+  if (!SEARCH_PROVIDERS.includes(provider)) {
+    errors.provider = 'Choose a search mode: "test" or "apify".';
+  } else if (provider === 'apify' && body.confirmRealSearch !== true) {
+    errors.confirmRealSearch = 'Confirm that this real search uses Apify credits.';
+  }
+  if (body.confirmRealSearch !== undefined && typeof body.confirmRealSearch !== 'boolean') {
+    errors.confirmRealSearch = 'confirmRealSearch must be true or false.';
+  }
 
   const location = typeof body.location === 'string' ? body.location.trim().replace(/\s+/g, ' ') : '';
   if (!isSafeText(location, 2, limits.locationMaxLength)) {
@@ -41,6 +62,7 @@ export const validateJobParams = (body = {}) => {
 
   return {
     params: { location, radius, categories, maxBusinesses },
+    provider,
     errors,
     isValid: Object.keys(errors).length === 0,
   };

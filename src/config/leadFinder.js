@@ -12,15 +12,10 @@ export const budgetUsd = (raw, fallback) => {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 };
 
-/**
- * Live discovery is opt-in: without an explicit LEAD_FINDER_PROVIDER, Apify is used only
- * when APIFY_ENABLED=true. A token on its own never switches discovery to live mode.
- */
-export const selectProviderName = (env) =>
-  env.LEAD_FINDER_PROVIDER || (env.APIFY_ENABLED === 'true' ? 'apify' : 'fake');
-
 export const leadFinderConfig = {
-  provider: selectProviderName(process.env),
+  // Searches use test data unless the admin explicitly asks for a real search on a server
+  // where Apify is enabled (APIFY_ENABLED=true plus credentials). See services/leadFinder/providers.js.
+  defaultProvider: 'fake',
   workerEnabled: process.env.LEAD_FINDER_WORKER_ENABLED !== 'false',
   fakeProviderLatencyMs: Number(process.env.FAKE_PROVIDER_LATENCY_MS ?? 1500),
 

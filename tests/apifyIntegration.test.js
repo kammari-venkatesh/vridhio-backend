@@ -20,7 +20,11 @@ const silent = { error() {}, warn() {}, info() {} };
 let admin;
 
 const workerWith = (provider, options = {}) =>
-  createLeadFinderWorker({ resolveProvider: () => provider, logger: silent, ...options });
+  createLeadFinderWorker({ resolveProvider: () => provider, providers: ['fake', 'apify'], logger: silent, ...options });
+
+// A real search as the API creates it: provider "apify" on a server where Apify is enabled and configured.
+const createApifyJob = (params = PARAMS, provider = testApifyProvider({ mock: mockApify() })) =>
+  createJob(params, admin._id, { provider: 'apify', apifyEnabled: true, resolveProvider: () => provider, geocode: async () => null });
 
 before(startTestDb);
 after(stopTestDb);
@@ -31,7 +35,7 @@ beforeEach(async () => {
 
 describe('Apify discovery through the worker (mocked Apify)', () => {
   it('runs the job end to end: start, poll, dataset, normalisation, prospects', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     let statusAtStart;
     const items = [
       placeItem(1),
@@ -84,7 +88,7 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('never returns provider run IDs from the API', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     await workerWith(testApifyProvider({ mock: mockApify({ items: [placeItem(1)] }) })).runOnce();
 
     const dto = await getJob(job.id);
@@ -95,10 +99,10 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('does not duplicate businesses found again by a later search', async () => {
-    await createJob(PARAMS, admin._id);
+    await createApifyJob();
     await workerWith(testApifyProvider({ mock: mockApify({ items: [placeItem(1), placeItem(2)] }) })).runOnce();
 
-    const second = await createJob(PARAMS, admin._id);
+    const second = await createApifyJob();
     await workerWith(testApifyProvider({ mock: mockApify({ items: [placeItem(2), placeItem(3)] }) })).runOnce();
 
     assert.equal(await Prospect.countDocuments(), 3);
@@ -108,7 +112,7 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('marks the job failed with a safe message when Apify rejects the request', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     const errors = [];
     const mock = mockApify({ startError: apiError(401) });
 
@@ -121,7 +125,7 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('marks the job failed when the Actor run fails', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     await workerWith(testApifyProvider({ mock: mockApify({ statuses: ['RUNNING', 'FAILED'] }) })).runOnce();
     const stored = await LeadFinderJob.findById(job.id);
     assert.equal(stored.status, 'failed');
@@ -130,7 +134,7 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('cancels a running Apify job: stops waiting, aborts the run and never completes', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     const mock = mockApify({
       statuses: ['RUNNING'],
       items: [placeItem(1)],
@@ -150,7 +154,7 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('never writes results that arrive after the job was cancelled', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     const mock = mockApify({ items: [placeItem(1), placeItem(2)], onListItems: () => cancelJob(job.id) });
 
     const result = await workerWith(testApifyProvider({ mock })).runOnce();
@@ -161,7 +165,7 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
   });
 
   it('fails a job that exceeds the provider time budget and aborts the run', async () => {
-    const job = await createJob(PARAMS, admin._id);
+    const job = await createApifyJob();
     const mock = mockApify({ statuses: ['RUNNING'] });
     const provider = testApifyProvider({ mock, config: { pollIntervalSeconds: 0.01 }, sleep: delay });
 
@@ -179,9 +183,9 @@ describe('Apify discovery through the worker (mocked Apify)', () => {
 describe('Job creation with the Apify provider', () => {
   it('rejects a search when Apify is not configured, without queuing it', async () => {
     const provider = testApifyProvider({ mock: mockApify(), config: { token: '' } });
-    await assert.rejects(createJob(PARAMS, admin._id, { resolveProvider: () => provider }), (err) => {
+    await assert.rejects(createApifyJob(PARAMS, provider), (err) => {
       assert.equal(err.statusCode, 503);
-      assert.equal(err.message, SAFE_PROVIDER_MESSAGES.CONFIGURATION_ERROR);
+      assert.equal(err.details.code, 'REAL_APIFY_NOT_CONFIGURED');
       return true;
     });
     assert.equal(await LeadFinderJob.countDocuments(), 0);
@@ -191,7 +195,7 @@ describe('Job creation with the Apify provider', () => {
     const mock = mockApify();
     const provider = testApifyProvider({ mock, config: { maxItems: 20 } });
     await assert.rejects(
-      createJob({ ...PARAMS, maxBusinesses: 50 }, admin._id, { resolveProvider: () => provider }),
+      createApifyJob({ ...PARAMS, maxBusinesses: 50 }, provider),
       (err) => err.statusCode === 400 && /20 businesses/.test(err.message),
     );
     assert.equal(await LeadFinderJob.countDocuments(), 0);
@@ -216,15 +220,16 @@ describe('GET /api/admin/lead-finder/provider-status', () => {
     assert.equal((await request(app).get(URL)).status, 401);
   });
 
-  it('reports the active provider and mode without secrets', async () => {
+  it('reports test as the default and real Apify as disabled, without secrets', async () => {
     const { agent } = await loginAgent(app);
     const res = await agent.get(URL);
     assert.equal(res.status, 200);
     assert.deepEqual(res.body.data, {
-      provider: 'fake',
-      mode: 'test',
-      configured: true,
-      actorConfigured: false,
+      defaultProvider: 'test',
+      providers: {
+        test: { available: true },
+        apify: { available: false, unavailableReason: 'REAL_APIFY_DISABLED', maxRunCostUsd: null },
+      },
       dailyBudgetConfigured: true,
       monthlyBudgetConfigured: false,
     });

@@ -42,8 +42,10 @@ const start = async () => {
     console.log(`Server running in ${env.nodeEnv} mode on http://localhost:${env.port}`);
     if (worker) {
       worker.start();
-      const { provider, mode } = getProviderStatus();
-      console.log(`Lead Finder worker started (${provider} provider, ${mode})`);
+      const real = getProviderStatus().providers.apify;
+      console.log(
+        `Lead Finder worker started (default: test data; real Apify: ${real.available ? 'available' : (real.unavailableReason ?? 'unavailable')})`,
+      );
     }
     if (analysisWorker) {
       analysisWorker.start();

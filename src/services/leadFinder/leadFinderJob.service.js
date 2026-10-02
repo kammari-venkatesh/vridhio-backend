@@ -5,9 +5,18 @@ import { ApiError } from '../../utils/ApiError.js';
 import { checkBudget, costPerNewProspectMicroUsd, fromMicroUsd, hasSettledCost, toMicroUsd } from './cost.service.js';
 import { GeocodingError, resolveSearchCenter } from './geocoding.service.js';
 import { PROVIDER_ERROR_CODES, ProviderError, SAFE_PROVIDER_MESSAGES } from './provider.interface.js';
-import { getProvider, isKnownProvider } from './providers.js';
+import {
+  getProvider,
+  INTERNAL_PROVIDER_NAMES,
+  isKnownProvider,
+  providerAvailability,
+  PUBLIC_PROVIDER_NAMES,
+  REAL_SEARCH_MESSAGES,
+} from './providers.js';
 
 const isPaidJob = (job) => job.costCapMicroUsd !== null && job.costCapMicroUsd !== undefined;
+// Taken from the provider stored on the job, so a real job is never shown as test data or vice versa.
+const publicProvider = (job) => PUBLIC_PROVIDER_NAMES[job.provider] ?? 'unknown';
 
 /**
  * Cost as shown to admins. "test": no paid provider; "pending": run still going or its
@@ -34,7 +43,8 @@ const costDto = (job) => {
 export const toJobDto = (job) => ({
   id: job._id.toString(),
   status: job.status,
-  providerMode: isPaidJob(job) ? 'live' : 'test',
+  provider: publicProvider(job),
+  providerMode: job.provider === 'fake' ? 'test' : 'live',
   params: {
     location: job.params.location,
     radius: job.params.radius,
@@ -83,6 +93,7 @@ const assertProviderCanRun = (providerName, params, resolveProvider) => {
     throw new ApiError(503, SAFE_PROVIDER_MESSAGES[PROVIDER_ERROR_CODES.CONFIGURATION_ERROR]);
   }
   const provider = resolveProvider(providerName);
+  if (provider.name !== providerName) throw new Error(`Provider mismatch: requested "${providerName}", got "${provider.name}"`);
   try {
     provider.validateRequest?.(params);
   } catch (err) {
@@ -102,16 +113,27 @@ const resolveArea = async (location, geocode) => {
 };
 
 /**
- * Validates, budgets and queues a search. Everything that can reject it (provider
- * configuration, limits, active-job cap, budget, unresolvable location) runs before
- * the job is stored, so a rejected search never reaches a paid provider.
+ * Validates, budgets and queues a search with the provider the admin asked for ("test" or
+ * "apify"). A real search that this server cannot run is rejected, never downgraded to test
+ * data. Everything that can reject it (availability, configuration, limits, active-job cap,
+ * budget, unresolvable location) runs before the job is stored, so a rejected search never
+ * reaches a paid provider.
  */
 export const createJob = async (
   params,
   adminId,
-  { resolveProvider = getProvider, geocode = resolveSearchCenter } = {},
+  { provider: requested = 'test', resolveProvider = getProvider, geocode = resolveSearchCenter, apifyEnabled } = {},
 ) => {
-  const provider = assertProviderCanRun(leadFinderConfig.provider, params, resolveProvider);
+  const providerName = INTERNAL_PROVIDER_NAMES[requested];
+  if (!providerName) throw new ApiError(400, 'Validation failed', { provider: 'Choose a search mode: "test" or "apify".' });
+  const availability = providerAvailability(providerName, {
+    resolveProvider,
+    ...(apifyEnabled !== undefined && { apifyEnabled }),
+  });
+  if (!availability.available) {
+    throw new ApiError(503, REAL_SEARCH_MESSAGES[availability.reason], { code: availability.reason });
+  }
+  const provider = assertProviderCanRun(providerName, params, resolveProvider);
 
   const { maxActiveJobs } = leadFinderConfig.limits;
   const activeJobs = await LeadFinderJob.countDocuments({ status: { $in: ACTIVE_JOB_STATUSES } });
@@ -132,7 +154,7 @@ export const createJob = async (
 
   const job = await LeadFinderJob.create({
     params,
-    provider: leadFinderConfig.provider,
+    provider: providerName,
     createdBy: adminId,
     costCapMicroUsd,
     radiusEnforced: Boolean(searchArea),

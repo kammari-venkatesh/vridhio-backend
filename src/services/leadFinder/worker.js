@@ -7,7 +7,7 @@ import { Prospect } from '../../models/prospect.model.js';
 import { addProspectsToWorkspace } from '../leadWorkspace/salesLead.service.js';
 import { haversineKm, isValidCoordinate } from '../../utils/geo.js';
 import { checkBudget, toMicroUsd } from './cost.service.js';
-import { getProvider } from './providers.js';
+import { getProvider, runnableProviders } from './providers.js';
 import { upsertDiscoveredProspects } from './prospect.service.js';
 import {
   assertProvider,
@@ -63,11 +63,15 @@ export const filterByRadius = (businesses, center, radiusKm) => {
 /**
  * MongoDB-backed worker. Jobs are claimed with an atomic findOneAndUpdate, so any
  * number of workers (in-process or separate processes) never process the same job.
+ * A worker only claims jobs whose stored provider is enabled in its own process
+ * (`providers`), so a server with Apify disabled never picks up a real search, and
+ * each job runs with exactly the provider stored on it.
  * Processes one job at a time per worker; all work is async I/O so API requests
  * in the same process are not blocked.
  */
 export const createLeadFinderWorker = ({
   resolveProvider = getProvider,
+  providers = runnableProviders(),
   workerId = `${os.hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`,
   pollIntervalMs = leadFinderConfig.worker.pollIntervalMs,
   batchSize = leadFinderConfig.worker.batchSize,
@@ -90,7 +94,7 @@ export const createLeadFinderWorker = ({
 
   const claimNextJob = () =>
     LeadFinderJob.findOneAndUpdate(
-      { status: 'queued' },
+      { status: 'queued', provider: { $in: providers } },
       { $set: { status: 'running', startedAt: new Date(), heartbeatAt: new Date(), lockedBy: workerId } },
       { sort: { createdAt: 1, _id: 1 }, returnDocument: 'after' },
     );
@@ -170,7 +174,14 @@ export const createLeadFinderWorker = ({
   };
 
   const processJob = async (job) => {
+    if (!providers.includes(job.provider)) {
+      throw new ProviderError('This server is not allowed to run this search provider.', {
+        code: PROVIDER_ERROR_CODES.CONFIGURATION_ERROR,
+      });
+    }
     const provider = assertProvider(resolveProvider(job.provider));
+    // Never run a job with a different provider than the one it was created for.
+    if (provider.name !== job.provider) throw new Error(`Provider mismatch: job "${job.provider}", resolved "${provider.name}"`);
     const { location, radius, categories, maxBusinesses } = job.params;
     const center = job.radiusEnforced ? job.searchArea : null;
     if (center && !isValidCoordinate(center.latitude, center.longitude)) {
@@ -245,6 +256,7 @@ export const createLeadFinderWorker = ({
     const job = await LeadFinderJob.findOne({
       'providerRun.runId': { $ne: null },
       'usage.settledAt': null,
+      provider: { $in: providers },
       status: { $in: ['completed', 'failed', 'cancelled'] },
       finishedAt: { $lte: new Date(Date.now() - costSettleDelayMs) },
     })
@@ -321,6 +333,7 @@ export const createLeadFinderWorker = ({
 
   return {
     workerId,
+    providers: [...providers],
     runOnce,
     settleCostsOnce,
     claimNextJob,
