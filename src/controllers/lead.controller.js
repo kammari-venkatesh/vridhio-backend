@@ -18,3 +18,5 @@ export const createLead = (req, res) => {
 export const listLeads = (_req, res) => {
   res.json({ success: true, count: leads.length, data: leads });
 };
+
+export const getLeadCount = () => leads.length;

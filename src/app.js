@@ -1,18 +1,35 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import { env, isProduction } from './config/env.js';
+import { env, isProduction, isTest } from './config/env.js';
 import routes from './routes/index.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 const app = express();
 
+// Behind a hosting proxy (Render/Railway/Fly), needed so rate limiting sees the real client IP.
+if (isProduction) app.set('trust proxy', 1);
+
 app.use(helmet());
-app.use(cors({ origin: env.corsOrigins }));
-app.use(express.json({ limit: '100kb' }));
+app.use(
+  cors({
+    origin: env.corsOrigins,
+    credentials: true,
+    exposedHeaders: ['Content-Disposition', 'X-Export-Count', 'X-Export-Truncated'],
+  }),
+);
+const defaultJson = express.json({ limit: '100kb' });
+// Lead Workspace imports and table pastes parse their larger bodies after authentication
+// (see leadWorkspace.routes.js and salesLead.routes.js).
+const LARGE_BODY_PATHS = ['/api/admin/lead-workspace/import', '/api/admin/leads/batch'];
+app.use((req, res, next) =>
+  LARGE_BODY_PATHS.some((path) => req.path.startsWith(path)) ? next() : defaultJson(req, res, next),
+);
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan(isProduction ? 'combined' : 'dev'));
+app.use(cookieParser());
+if (!isTest) app.use(morgan(isProduction ? 'combined' : 'dev'));
 
 app.get('/', (_req, res) => {
   res.json({ success: true, message: 'Vridhio API is running' });

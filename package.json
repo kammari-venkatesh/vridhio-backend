@@ -6,7 +6,14 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env src/server.js",
-    "start": "node --env-file-if-exists=.env src/server.js"
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "admin:create": "node --env-file-if-exists=.env scripts/createAdmin.js",
+    "worker": "node --env-file-if-exists=.env src/workers/leadFinder.worker.js",
+    "worker:website-analysis": "node --env-file-if-exists=.env src/workers/websiteAnalysis.worker.js",
+    "worker:qualification": "node --env-file-if-exists=.env src/workers/qualification.worker.js",
+    "test": "node --import ./tests/setupEnv.js --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "leads:report": "node --env-file-if-exists=.env scripts/leadDataReport.js",
+    "leads:add-prospects": "node --env-file-if-exists=.env scripts/addProspectsToWorkspace.js"
   },
   "engines": {
     "node": ">=22"
@@ -15,9 +22,20 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "apify-client": "^2.25.0",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
+    "htmlparser2": "^10.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.10.3",
     "morgan": "^1.12.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.3.0"
   }
 }
