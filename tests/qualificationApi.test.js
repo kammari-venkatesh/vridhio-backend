@@ -263,9 +263,11 @@ describe('Qualification API: sales leads', () => {
 
   it('qualifies a manual lead with no website from NO_WEBSITE evidence', async () => {
     const lead = await SalesLead.create({ businessName: 'Corner Tailor', city: 'Pune' });
-    assert.equal((await agent.get(`${LEADS}/${lead.id}/qualification`)).body.data.status, 'ANALYSIS_REQUIRED');
-    assert.equal((await agent.post(`${LEADS}/${lead.id}/analyze`)).status, 200);
-    assert.equal((await agent.post(`${LEADS}/${lead.id}/qualify`)).status, 202);
+    assert.equal((await agent.get(`${LEADS}/${lead.id}/qualification`)).body.data.status, 'NOT_ANALYZED');
+    const list = await agent.get(LEADS);
+    assert.equal(list.body.data.find((l) => l.id === lead.id).qualification.status, 'NOT_ANALYZED');
+    assert.equal((await agent.post(`${LEADS}/${lead.id}/qualify`)).status, 202, 'no manual analysis needed without a website');
+    assert.equal((await agent.get(`${LEADS}/${lead.id}/analysis`)).body.data.status, 'SKIPPED');
     await runWorker();
     const q = (await agent.get(`${LEADS}/${lead.id}/qualification`)).body.data;
     assert.equal(q.status, 'COMPLETED');
@@ -289,18 +291,27 @@ describe('Qualification API: sales leads', () => {
     const leadA = (await agent.post(`${LF}/prospects/${a.id}/promote`)).body.data;
     const leadB = (await agent.post(`${LF}/prospects/${b.id}/promote`)).body.data;
     const noAnalysis = await SalesLead.create({ businessName: 'Unanalysed Co', website: 'https://weak.example/' });
-    const ids = [leadA.lead?.id ?? leadA.id, leadB.lead?.id ?? leadB.id, noAnalysis.id, new mongoose.Types.ObjectId().toString()];
+    const noWebsite = await SalesLead.create({ businessName: 'Offline Co' });
+    const ids = [
+      leadA.lead?.id ?? leadA.id,
+      leadB.lead?.id ?? leadB.id,
+      noAnalysis.id,
+      noWebsite.id,
+      new mongoose.Types.ObjectId().toString(),
+    ];
     const res = await agent.post(`${LEADS}/qualification/bulk`).send({ ids });
     assert.equal(res.status, 200);
-    assert.equal(res.body.data.queued, 2);
+    assert.equal(res.body.data.queued, 3);
     assert.equal(res.body.data.analysisRequired, 1);
     assert.equal(res.body.data.rejected, 1);
     await runWorker();
-    const statuses = (await agent.get(`${LEADS}/qualification-status?ids=${ids.slice(0, 3).join(',')}`)).body.data;
+    const statuses = (await agent.get(`${LEADS}/qualification-status?ids=${ids.slice(0, 4).join(',')}`)).body.data;
     assert.equal(statuses[ids[0]].status, 'COMPLETED');
     assert.equal(statuses[ids[1]].status, 'COMPLETED');
     assert.deepEqual(statuses[ids[1]].serviceIds, []);
     assert.equal(statuses[ids[2]].status, 'ANALYSIS_REQUIRED');
+    assert.equal(statuses[ids[3]].status, 'COMPLETED');
+    assert.deepEqual(statuses[ids[3]].serviceIds, ['website-development']);
   });
 
   it('stops a bulk request at the budget limit', async () => {

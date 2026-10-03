@@ -77,6 +77,13 @@ describe('Evidence payload (fixtures A-D)', () => {
     assert.deepEqual(candidates, []);
   });
 
+  it('lists social media accounts as not collected only when no profile links were found', async () => {
+    const linked = (await inputFor('C')).payload.notCollected;
+    assert.ok(linked.includes('social media activity or engagement'));
+    assert.ok(!linked.some((item) => /accounts/.test(item)));
+    assert.ok((await inputFor('B')).payload.notCollected.includes('social media accounts, activity or engagement'));
+  });
+
   it('D: an access-denied website gives insufficient evidence for any service', async () => {
     const { evidence, candidates } = await inputFor('D');
     assert.deepEqual(types(evidence), ['HTTP_ERROR']);

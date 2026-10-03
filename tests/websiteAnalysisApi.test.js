@@ -156,6 +156,18 @@ describe('Website analysis API: lifecycle', () => {
     assert.equal(await ProspectWebsiteAnalysis.countDocuments(), 1);
   });
 
+  it('fetches the website again when the stored analysis came from an older analyzer', async () => {
+    const prospect = await newProspect();
+    await agent.post(analyzePath(prospect.id));
+    await runWorker();
+    await ProspectWebsiteAnalysis.updateOne({}, { $set: { analyzerVersion: 1 } });
+
+    const again = await agent.post(analyzePath(prospect.id));
+    assert.equal(again.body.data.outcome, 'queued');
+    assert.deepEqual(await runWorker(), ['COMPLETED']);
+    assert.equal((await ProspectWebsiteAnalysis.findOne()).analyzerVersion, 2);
+  });
+
   it('creates only one analysis for simultaneous requests', async () => {
     const prospect = await newProspect();
     const responses = await Promise.all(Array.from({ length: 5 }, () => agent.post(analyzePath(prospect.id))));
@@ -316,16 +328,29 @@ describe('Website analysis worker', () => {
     assert.doesNotMatch(JSON.stringify(a), /boom|internal\/path/);
   });
 
-  it('is never triggered by Lead Finder discovery', async () => {
+  it('is queued for every business Lead Finder saves when automatic analysis is on', async () => {
     const job = await agent.post(`${LF}/jobs`).send({ location: 'Pune', radius: 5, categories: ['Gyms'], maxBusinesses: 5 });
     assert.equal(job.status, 202);
-    const discovery = createLeadFinderWorker({ logger: { error() {} } });
+    const discovery = createLeadFinderWorker({ analyzeWebsites: true, logger: { error() {} } });
+    assert.equal((await discovery.runOnce()).outcome, 'completed');
+    const prospects = await Prospect.find().lean();
+    assert.ok(prospects.length > 0);
+    assert.equal(await ProspectWebsiteAnalysis.countDocuments(), prospects.length, 'one analysis per business');
+    const withSite = prospects.filter((p) => p.website).length;
+    assert.equal(await ProspectWebsiteAnalysis.countDocuments({ status: 'QUEUED' }), withSite);
+    assert.equal(await ProspectWebsiteAnalysis.countDocuments({ status: 'SKIPPED' }), prospects.length - withSite);
+    assert.equal(web.requests.length, 0, 'discovery only queues; the analysis worker fetches');
+
+    const listed = await agent.get(`${LF}/jobs/${job.body.data.jobId}/prospects`);
+    assert.ok(listed.body.data.items.every((p) => p.websiteAnalysis !== null));
+  });
+
+  it('is not queued by Lead Finder when automatic analysis is off', async () => {
+    await agent.post(`${LF}/jobs`).send({ location: 'Pune', radius: 5, categories: ['Gyms'], maxBusinesses: 5 });
+    const discovery = createLeadFinderWorker({ analyzeWebsites: false, logger: { error() {} } });
     assert.equal((await discovery.runOnce()).outcome, 'completed');
     assert.ok((await Prospect.countDocuments()) > 0);
     assert.equal(await ProspectWebsiteAnalysis.countDocuments(), 0);
-
-    const prospects = await agent.get(`${LF}/jobs/${job.body.data.jobId}/prospects`);
-    assert.ok(prospects.body.data.items.every((p) => p.websiteAnalysis === null));
   });
 });
 

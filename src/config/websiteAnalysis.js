@@ -6,14 +6,17 @@ const positiveInt = (raw, fallback, max = Number.MAX_SAFE_INTEGER) => {
 /**
  * Website & digital presence analysis (Phase 4). Direct HTTP(S) requests only: no paid
  * APIs, no browser, no crawling. Each analysis fetches at most the homepage, robots.txt
- * and a few sitemap candidates. Discovery never queues analyses automatically.
+ * and a few sitemap candidates.
  */
 export const websiteAnalysisConfig = {
   workerEnabled: process.env.WEBSITE_ANALYSIS_WORKER_ENABLED !== 'false',
+  // Lead Finder queues an analysis for every business it saves (WEBSITE_ANALYSIS_AUTO=false turns this off).
+  autoAnalyzeDiscovered: process.env.WEBSITE_ANALYSIS_AUTO !== 'false',
   userAgent: 'Mozilla/5.0 (compatible; VridhioSiteCheck/1.0; +https://vridhio.com)',
   // Token matched against robots.txt user-agent groups.
   robotsAgent: 'vridhiositecheck',
-  analyzerVersion: 1,
+  // Bump when stored facts would differ; results from older versions are re-fetched on request.
+  analyzerVersion: 2,
 
   request: {
     timeoutMs: positiveInt(process.env.WEBSITE_ANALYSIS_TIMEOUT_MS, 10_000, 30_000),

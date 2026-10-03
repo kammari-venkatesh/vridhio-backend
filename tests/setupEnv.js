@@ -20,6 +20,8 @@ delete process.env.LEAD_FINDER_MONTHLY_BUDGET_USD;
 // Website analysis: no worker is started by tests and no real website is ever fetched;
 // tests inject a fake DNS resolver and HTTP transport.
 process.env.WEBSITE_ANALYSIS_WORKER_ENABLED = 'false';
+// Lead Finder workers in tests queue analyses only when a test passes analyzeWebsites: true.
+process.env.WEBSITE_ANALYSIS_AUTO = 'false';
 delete process.env.WEBSITE_ANALYSIS_TIMEOUT_MS;
 delete process.env.WEBSITE_ANALYSIS_CONCURRENCY;
 delete process.env.WEBSITE_ANALYSIS_FRESH_DAYS;

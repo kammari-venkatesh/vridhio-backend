@@ -101,10 +101,13 @@ export const analyzeHtml = (html, { pageUrl }) => {
   const startCapture = (kind) => {
     capture = { kind, text: '' };
   };
+  // Line breaks and block elements separate words visually but contribute no text node.
+  const WORD_BREAK_TAGS = new Set(['br', 'p', 'div', 'li', 'tr', 'td', 'th']);
 
   const parser = new Parser(
     {
       onopentag(name, attrs) {
+        if (capture?.kind === 'h1' && WORD_BREAK_TAGS.has(name)) capture.text += ' ';
         const cls = attrs.class;
         if (cls && signals.classTokens.length < MAX_CLASS_TOKENS) {
           for (const token of cls.split(/\s+/)) if (token) pushCapped(signals.classTokens, token, MAX_CLASS_TOKENS);

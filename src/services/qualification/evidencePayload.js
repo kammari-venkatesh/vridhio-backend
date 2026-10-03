@@ -72,6 +72,7 @@ export const buildEvidencePayload = ({ business, analysis }) => {
 
   const av = analysis.availability ?? {};
   const sd = analysis.structuredData ?? {};
+  const socialPlatformsLinked = [...new Set((analysis.socialLinks ?? []).map((s) => s.platform))];
   const payload = {
     prospect: {
       businessName: cleanText(business.businessName, MAX_TEXT.name),
@@ -102,7 +103,7 @@ export const buildEvidencePayload = ({ business, analysis }) => {
       openGraph: sd.openGraph?.present ?? null,
       twitterCard: sd.twitterCard?.present ?? null,
       technologies: (analysis.technologies ?? []).slice(0, 15).map((t) => ({ name: cleanText(t.name, MAX_TEXT.short), confidence: t.confidence })),
-      socialPlatformsLinked: [...new Set((analysis.socialLinks ?? []).map((s) => s.platform))],
+      socialPlatformsLinked,
     },
     evidence: evidence.map(({ id, type, severity, evidence: text }) => ({ id, type, severity, evidence: text })),
     candidateServices: candidates,
@@ -111,7 +112,7 @@ export const buildEvidencePayload = ({ business, analysis }) => {
       'website traffic or analytics',
       'conversion rates, leads or sales',
       'advertising activity or performance',
-      'social media accounts, activity or engagement',
+      socialPlatformsLinked.length ? 'social media activity or engagement' : 'social media accounts, activity or engagement',
       'reviews or reputation',
       'revenue, customers or business size',
       'page speed or performance scores',

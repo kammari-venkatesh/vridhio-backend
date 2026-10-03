@@ -6,7 +6,12 @@ import { ProspectWebsiteAnalysis } from '../../models/prospectWebsiteAnalysis.mo
 import { SalesLead } from '../../models/salesLead.model.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { fromMicroUsd } from '../leadFinder/cost.service.js';
-import { toAnalysisDto, resolveLeadTarget } from '../websiteAnalysis/websiteAnalysis.service.js';
+import {
+  isOfflineAnalysis,
+  requestAnalysis,
+  resolveLeadTarget,
+  toAnalysisDto,
+} from '../websiteAnalysis/websiteAnalysis.service.js';
 import { normalizeWebsiteUrl } from '../websiteAnalysis/urlValidator.js';
 import { checkAiBudget, getAiSpendSummary, releaseAiUsage, reserveAiUsage } from './aiBudget.service.js';
 import { buildEvidencePayload } from './evidencePayload.js';
@@ -40,6 +45,9 @@ export const isUsableAnalysis = (doc, target) => {
   if (!finished) return false;
   return comparableUrl(doc.website?.websiteUrl) === comparableUrl(target.websiteUrl);
 };
+
+/** Qualification can start: a usable analysis exists, or none is needed (no usable website). */
+const readyToQualify = (analysisDoc, target) => isUsableAnalysis(analysisDoc, target) || isOfflineAnalysis(target.websiteUrl);
 
 const sameTime = (a, b) => (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
@@ -190,14 +198,20 @@ const assertAiAvailable = () => {
  *  - COMPLETED, current and within QUALIFICATION_FRESH_DAYS, or FAILED within the
  *    failure cooldown for the same analysis: the stored result is returned;
  *  - refresh=true re-queues, never within `refreshCooldownMs` of the last attempt.
- * Never starts a website analysis: without a usable one it fails with 409
- * ANALYSIS_REQUIRED. The estimated cost is checked against and reserved in the AI
- * budget before anything is queued.
+ * Never fetches a website: when the business has a website without a usable analysis
+ * it fails with 409 ANALYSIS_REQUIRED. When there is no usable website (none, invalid
+ * or unsafe) that outcome needs no request, so it is recorded here first. The
+ * estimated cost is checked against and reserved in the AI budget before anything is
+ * queued.
  */
 export const requestQualification = async (target, { refresh = false, adminId = null } = {}) => {
   const { policy } = qualificationConfig;
   const provider = assertAiAvailable();
-  const analysisDoc = await loadAnalysis(target);
+  let analysisDoc = await loadAnalysis(target);
+  if (!isUsableAnalysis(analysisDoc, target) && isOfflineAnalysis(target.websiteUrl)) {
+    await requestAnalysis(target, { adminId });
+    analysisDoc = await loadAnalysis(target);
+  }
   if (!isUsableAnalysis(analysisDoc, target)) {
     throw new ApiError(409, safeQualificationMessage(C.ANALYSIS_REQUIRED), { code: C.ANALYSIS_REQUIRED });
   }
@@ -286,7 +300,7 @@ export const getQualificationFor = async (target) => {
     loadAnalysis(target),
   ]);
   if (doc) return toQualificationDto(doc, { analysisDoc, target });
-  return placeholderDto(target, isUsableAnalysis(analysisDoc, target) ? 'NOT_ANALYZED' : 'ANALYSIS_REQUIRED');
+  return placeholderDto(target, readyToQualify(analysisDoc, target) ? 'NOT_ANALYZED' : 'ANALYSIS_REQUIRED');
 };
 
 // Bulk requests stop at the first error that would reject every remaining lead.
@@ -324,7 +338,7 @@ const QUALIFICATION_SUMMARY_FIELDS =
 
 /** Small qualification summary for list views, or null when never requested. */
 const summaryOf = (doc, analysisDoc, target) => {
-  if (!doc) return { status: isUsableAnalysis(analysisDoc, target) ? 'NOT_ANALYZED' : 'ANALYSIS_REQUIRED', serviceIds: [] };
+  if (!doc) return { status: readyToQualify(analysisDoc, target) ? 'NOT_ANALYZED' : 'ANALYSIS_REQUIRED', serviceIds: [] };
   const stale = doc.status === 'COMPLETED' ? staleReason(doc, analysisDoc, target) : null;
   return {
     id: doc._id.toString(),

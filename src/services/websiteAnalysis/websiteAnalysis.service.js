@@ -69,7 +69,10 @@ const mapObject = (value) => (value instanceof Map ? Object.fromEntries(value) :
 const plain = (value) => (value?.toObject ? value.toObject() : value);
 
 const isFresh = (doc, now = Date.now()) =>
-  doc.status === 'COMPLETED' && doc.analyzedAt && now - doc.analyzedAt.getTime() < websiteAnalysisConfig.policy.freshForMs;
+  doc.status === 'COMPLETED' &&
+  doc.analyzerVersion === websiteAnalysisConfig.analyzerVersion &&
+  doc.analyzedAt &&
+  now - doc.analyzedAt.getTime() < websiteAnalysisConfig.policy.freshForMs;
 
 /** Public shape of an analysis; worker lease fields and the requesting admin stay server-side. */
 export const toAnalysisDto = (doc, target = null) => {
@@ -194,6 +197,9 @@ const storeImmediateResult = async (target, result, adminId) => {
     return ProspectWebsiteAnalysis.findOne({ subjectKey: target.subjectKey });
   }
 };
+
+/** True when the analysis outcome is known without a network request (no, invalid or unsafe website). */
+export const isOfflineAnalysis = (websiteUrl) => Boolean(normalizeWebsiteUrl(websiteUrl).error);
 
 const immediateResult = (target) => {
   const normalized = normalizeWebsiteUrl(target.websiteUrl);

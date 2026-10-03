@@ -30,9 +30,11 @@ const IGNORED_PATH = {
 
 const platformFor = (host) => PLATFORM_HOSTS.find(([, pattern]) => pattern.test(host))?.[0] ?? null;
 
-const normalise = (url) => {
+const normalise = (url, platform) => {
   const copy = new URL(url.href);
   copy.hash = '';
+  // A WhatsApp contact is its phone number; pre-filled message text varies per link.
+  if (platform === 'WhatsApp') copy.searchParams.delete('text');
   if (copy.hostname.startsWith('m.') || copy.hostname.startsWith('mobile.')) {
     copy.hostname = copy.hostname.replace(/^(m|mobile)\./, 'www.');
   }
@@ -65,10 +67,12 @@ export const detectSocialLinks = (hrefs = [], source = 'WEBSITE') => {
     const pathAndQuery = `${url.pathname}${url.search}`;
     const hasProfile = platform === 'WhatsApp' ? url.pathname.length > 1 || url.search.length > 1 : url.pathname.replace(/\/+$/, '').length > 1;
     if (!hasProfile || IGNORED_PATH[platform]?.test(pathAndQuery)) continue;
-    const key = normalise(url).toLowerCase().replace(/^https?:\/\/(www\.)?/, '');
+    const normalised = normalise(url, platform);
+    const phone = platform === 'WhatsApp' ? (url.searchParams.get('phone') ?? url.pathname).replace(/\D/g, '') : '';
+    const key = phone ? `whatsapp:${phone}` : normalised.toLowerCase().replace(/^https?:\/\/(www\.)?/, '');
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ platform, url: normalise(url).slice(0, 500), source });
+    out.push({ platform, url: normalised.slice(0, 500), source });
   }
   return out;
 };

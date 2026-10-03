@@ -46,6 +46,14 @@ describe('HTML analysis', () => {
     assert.equal(poor.headingCounts.h2, 1);
   });
 
+  it('keeps words apart when an H1 contains line breaks or nested blocks', () => {
+    const { content } = analyzeHtml(
+      '<h1>Buy. Sell. <span>Invest.</span><br>With confidence.</h1><h1>Plots<div>and farm lands</div></h1>',
+      { pageUrl: 'https://example.com/' },
+    );
+    assert.deepEqual(content.h1Text, ['Buy. Sell. Invest. With confidence.', 'Plots and farm lands']);
+  });
+
   it('counts images without alt attributes separately from decorative empty alts', () => {
     const { content } = parse('seo-poor.html');
     assert.equal(content.imageCount, 4);
@@ -185,6 +193,19 @@ describe('Social link detection', () => {
     const urls = detectSocialLinks(links).map((l) => l.url).join(' ');
     assert.doesNotMatch(urls, /sharer|intent/);
     assert.equal(detectSocialLinks(['https://www.instagram.com/', 'https://facebook.com']).length, 0);
+  });
+
+  it('lists a WhatsApp number once, whatever message text each link pre-fills', () => {
+    const found = detectSocialLinks([
+      'https://wa.me/919800000000?text=Hello',
+      'https://wa.me/919800000000?text=Office+space+for+rent',
+      'https://api.whatsapp.com/send?phone=919800000000&text=Hi',
+      'https://www.instagram.com/realty.co',
+    ]);
+    assert.deepEqual(
+      found.map((l) => l.url),
+      ['https://wa.me/919800000000', 'https://www.instagram.com/realty.co'],
+    );
   });
 
   it('returns no social links when the page has none', () => {

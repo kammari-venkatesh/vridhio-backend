@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { leadFinderConfig } from '../../config/leadFinder.js';
 import { leadWorkspaceConfig } from '../../config/leadWorkspace.js';
+import { websiteAnalysisConfig } from '../../config/websiteAnalysis.js';
 import { LeadFinderJob } from '../../models/leadFinderJob.model.js';
 import { Prospect } from '../../models/prospect.model.js';
 import { addProspectsToWorkspace } from '../leadWorkspace/salesLead.service.js';
+import { requestAnalysis, resolveProspectTarget } from '../websiteAnalysis/websiteAnalysis.service.js';
 import { haversineKm, isValidCoordinate } from '../../utils/geo.js';
 import { checkBudget, toMicroUsd } from './cost.service.js';
 import { getProvider, runnableProviders } from './providers.js';
@@ -82,6 +84,7 @@ export const createLeadFinderWorker = ({
   costSettleDelayMs = leadFinderConfig.worker.costSettleDelayMs,
   maxCostSettleAttempts = leadFinderConfig.worker.maxCostSettleAttempts,
   addProspectsToLeads = leadWorkspaceConfig.autoAddProspects,
+  analyzeWebsites = websiteAnalysisConfig.autoAnalyzeDiscovered,
   logger = console,
   onProgress = () => {},
 } = {}) => {
@@ -126,6 +129,18 @@ export const createLeadFinderWorker = ({
       await addProspectsToWorkspace(prospects, job.createdBy, { searchLocation: job.params.location });
     } catch (err) {
       logger.error(`[lead-finder] job ${job._id}: could not add prospects to the Lead Workspace: ${err.message}`);
+    }
+  };
+
+  // Free (direct HTTP, no AI). The search succeeds even if queuing fails; Analyze still works per lead.
+  const analyzeBatch = async (job, batch, source) => {
+    try {
+      const prospects = await Prospect.find({ source, sourceId: { $in: batch.map((b) => b.sourceId) } }).select('_id');
+      for (const prospect of prospects) {
+        await requestAnalysis(await resolveProspectTarget(prospect._id.toString()), { adminId: job.createdBy });
+      }
+    } catch (err) {
+      logger.error(`[lead-finder] job ${job._id}: could not queue website analyses: ${err.message}`);
     }
   };
 
@@ -227,6 +242,7 @@ export const createLeadFinderWorker = ({
       processed += batch.length;
       await updateProgress(job._id, { processed, newProspects });
       if (addProspectsToLeads) await addBatchToWorkspace(job, batch, provider.name);
+      if (analyzeWebsites) await analyzeBatch(job, batch, provider.name);
     }
 
     const result = await LeadFinderJob.updateOne(ownedRunning(job._id), {
