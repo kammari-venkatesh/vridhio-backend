@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import { env, isProduction, isTest } from './config/env.js';
 import routes from './routes/index.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+import { ensureDB } from './config/db.js';
 
 const app = express();
 
@@ -35,6 +36,8 @@ app.get('/', (_req, res) => {
   res.json({ success: true, message: 'Vridhio API is running' });
 });
 
+// Vercel imports this app directly, so server.js (and its connectDB call) never runs there.
+if (process.env.VERCEL) app.use('/api', ensureDB);
 app.use('/api', routes);
 
 app.use(notFound);

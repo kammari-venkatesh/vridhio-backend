@@ -37,6 +37,26 @@ export const connectDB = async (uri = env.mongoUri) => {
   return { host: mongoose.connection.host, dbName };
 };
 
+let pendingConnection = null;
+
+/**
+ * Express middleware for serverless hosts (Vercel), where server.js never runs: connects on
+ * the first request and reuses the connection while the function instance stays warm.
+ */
+export const ensureDB = async (_req, _res, next) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      pendingConnection ??= connectDB().finally(() => {
+        pendingConnection = null;
+      });
+      await pendingConnection;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const disconnectDB = async () => {
   if (mongoose.connection.readyState !== 0) {
     await mongoose.connection.close();
