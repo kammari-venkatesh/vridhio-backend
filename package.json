@@ -22,6 +22,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@vercel/functions": "^3.9.11",
     "apify-client": "^2.25.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",

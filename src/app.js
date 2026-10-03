@@ -7,6 +7,7 @@ import { env, isProduction, isTest } from './config/env.js';
 import routes from './routes/index.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import { ensureDB } from './config/db.js';
+import { kickBackgroundWork } from './services/serverlessWork.js';
 
 const app = express();
 
@@ -37,7 +38,10 @@ app.get('/', (_req, res) => {
 });
 
 // Vercel imports this app directly, so server.js (and its connectDB call) never runs there.
-if (process.env.VERCEL) app.use('/api', ensureDB);
+if (process.env.VERCEL) {
+  app.use('/api', ensureDB);
+  app.use('/api/admin', kickBackgroundWork);
+}
 app.use('/api', routes);
 
 app.use(notFound);
